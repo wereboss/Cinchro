@@ -1,0 +1,31 @@
+# Cinchro Project Dependencies
+
+# --- General Core Dependencies (required for all components) ---
+# This is a placeholder for any libraries needed across all machines.
+# For example, 'requests' would be used for API calls between components.
+# requests==2.31.0
+
+# --- Orchestrator Dependencies (Windows Machine) ---
+# These packages are required to run the LangGraph agent and manage its dependencies.
+langgraph==0.0.40
+langchain==0.1.20
+langchain-community==0.0.38
+python-dotenv==1.0.1
+# Note: sqlite3 is a standard library and does not need to be listed.
+
+# --- Tool Dependencies (Unix and Linux Machines) ---
+# These are dependencies for the remote API services that will be implemented later.
+# We will use either FastAPI or Flask as our web framework.
+# Please choose one for your specific deployment.
+
+# FastAPI dependencies (recommended for async and type-hinting)
+fastapi==0.111.0
+uvicorn==0.30.1
+
+# Flask dependencies (alternative)
+# Flask==3.0.3
+# gunicorn==22.0.0
+
+# Additional dependencies for the Media Tools service (Unix)
+# This is a placeholder for libraries that might be useful for file system operations.
+# psutil==5.9.8
