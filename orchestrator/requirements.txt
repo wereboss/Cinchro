@@ -1,9 +1,4 @@
-# Cinchro Orchestrator Dependencies
-
-# LangGraph and LangChain for the core agent workflow
-langgraph
-langchain
-langchain-ollama
+# Cinchro Orchestrator Dependencies (Non-LLM)
 
 # For loading environment variables
 python-dotenv
