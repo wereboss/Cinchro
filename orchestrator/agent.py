@@ -17,17 +17,16 @@ from orchestrator.tools.media_tools import MediaTools
 from orchestrator.tools.ffmpeg_tools import FFMPEGGTools
 
 # LangChain and LangGraph Modules
-from langchain_core.pydantic_v1 import BaseModel, Field
+from langchain_ollama import ChatOllama
 from langchain_core.tools import tool
-from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.messages import HumanMessage
 from langgraph.graph import StateGraph, START, END
-from langgraph.graph.graph import CompiledGraph
-from langgraph.checkpoint.base import BaseCheckpointSaver
 
-from langchain_community.chat_models import ChatOllama
+# Note: AgentExecutor and ToolCallingAgent have been moved.
+# This is the correct, modern import path.
 from langchain.agents import AgentExecutor, ToolCallingAgent
-from langchain.agents.format_scratchpad import format_to_ollama_messages
-from langchain.agents.output_parsers import ToolsAgentOutputParser
+from langchain_core.agents import Agent as LangChainAgent
+
 
 # --- LangGraph State Definition ---
 class GraphState(TypedDict):
@@ -41,10 +40,6 @@ class GraphState(TypedDict):
     output_files: List[str]
 
 # --- Tool Wrappers for LangGraph ---
-# We will wrap our tool classes with @tool decorator to make them callable by LangChain
-# For a real application, you'd initialize these from the main entry point and pass them in.
-# For this example, we'll instantiate them here for simplicity.
-
 # Use a placeholder ConfigManager to get settings
 config = ConfigManager(config_path=os.path.join(os.path.dirname(__file__), 'config.json'))
 media_tools_instance = MediaTools(
@@ -98,8 +93,8 @@ class CinchroAgent:
         llm = ChatOllama(model=self.config_manager.get("LLM_MODEL")).bind_tools(tools)
         
         # Define agent to handle tool calls
-        self.agent = ToolCallingAgent(
-            llm=llm,
+        self.agent = AgentExecutor(
+            agent=ToolCallingAgent.from_llm_and_tools(llm=llm, tools=tools),
             tools=tools,
             prompt=self.prompt_manager.get("SYSTEM_PROMPT")
         )

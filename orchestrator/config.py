@@ -57,20 +57,17 @@ if __name__ == "__main__":
     # --- Example Usage ---
     # Create dummy files for demonstration
     with open("config.json", "w") as f:
-        json.dump({"api_key": "json_key_123", "logging_level": "INFO", "api_base_url": "http://localhost:8080"}, f)
+        json.dump({"api_key": "json_key_123", "logging_level": "INFO"}, f)
     with open(".env", "w") as f:
-        f.write("API_KEY_OVERRIDE=env_key_456\n")
-        f.write("DATABASE_URL=sqlite:///database.db\n")
+        f.write("GOOGLE_API_KEY=test-api-key-123\n")
+        f.write("DATABASE_PATH=sqlite:///test.db\n")
     
     # Instantiate the ConfigManager
     config_manager = ConfigManager()
 
     # Get values from different sources
-    print(f"API Key (should be 'env_key_456'): {config_manager.get('API_KEY_OVERRIDE')}")
+    print(f"Google API Key (from .env): {config_manager.get('GOOGLE_API_KEY')}")
     print(f"Logging Level (from config.json): {config_manager.get('logging_level')}")
-    print(f"Database URL (from .env): {config_manager.get('DATABASE_URL')}")
-    print(f"API Base URL (from config.json): {config_manager.get('api_base_url')}")
-    print(f"Non-existent key with default: {config_manager.get('non_existent', 'default_value')}")
 
     # Clean up dummy files
     os.remove("config.json")

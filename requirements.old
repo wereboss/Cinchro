@@ -29,3 +29,7 @@ uvicorn==0.30.1
 # Additional dependencies for the Media Tools service (Unix)
 # This is a placeholder for libraries that might be useful for file system operations.
 # psutil==5.9.8
+
+# --- Testing Dependencies ---
+# These are required for running our tests.
+pytest==8.2.2

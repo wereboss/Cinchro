@@ -1,0 +1,6 @@
+{
+  "LLM_MODEL": "gemini-pro-1.5",
+  "media_api_url": "http://192.168.0.112:5000",
+  "ffmpeg_api_url": "http://192.168.0.100:5001",
+  "use_dummy_tools": true
+}
