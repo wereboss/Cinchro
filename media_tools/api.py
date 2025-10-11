@@ -2,13 +2,17 @@
 
 import os
 import json
+import logging
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Dict, Any
 
-# Import the local config manager and ensure the path is correct for local imports
-# In a true deployment, the system knows to look locally first.
+# Import the local config manager
 from .config import ConfigManager
+
+# --- Logging Setup ---
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 # --- Pydantic Schemas for API ---
@@ -21,17 +25,17 @@ class FilePath(BaseModel):
 # --- Core Logic and Utilities ---
 
 # Initialize Configuration
-# Assuming config.json and .env exist in the current directory
 config_manager = ConfigManager()
 
-# Mock function to simulate a call to ffprobe to get media metadata
-def _simulate_ffprobe(file_path: str) -> Dict[str, Any]:
+# A simple mock for metadata extraction (This is fine to remain as we don't have ffprobe installed)
+def _get_mock_metadata(file_path: str) -> Dict[str, Any]:
     """
     Simulates calling ffprobe to get structured media metadata.
-    This logic mirrors the deterministic evaluation needed by the orchestrator.
+    This logic remains mock-based because we don't want a dependency on ffprobe
+    for the basic API service to run.
     """
-    # Define criteria for simulation
-    if "1080p_hevc" in file_path:
+    # Look for patterns in the *real* file name provided by the orchestrator (e.g., test-1080p.mkv)
+    if "1080p" in file_path and "hevc" in file_path.lower():
         return {
             "file_path": file_path,
             "video_codec": "HEVC",
@@ -39,15 +43,7 @@ def _simulate_ffprobe(file_path: str) -> Dict[str, Any]:
             "audio_channels": 6,
             "bitrate_kbps": 5000
         }
-    elif "720p_avc" in file_path:
-        return {
-            "file_path": file_path,
-            "video_codec": "AVC",
-            "resolution": "1280x720",
-            "audio_channels": 2,
-            "bitrate_kbps": 2500
-        }
-    elif "2160p_hevc_8ch" in file_path:
+    elif "2160p" in file_path:
         return {
             "file_path": file_path,
             "video_codec": "HEVC",
@@ -56,13 +52,13 @@ def _simulate_ffprobe(file_path: str) -> Dict[str, Any]:
             "bitrate_kbps": 12000
         }
     else:
-        # Default/unwanted file
+        # Default/unwanted file metadata
         return {
             "file_path": file_path,
-            "video_codec": "MPEG",
-            "resolution": "640x480",
+            "video_codec": "AVC",
+            "resolution": "1280x720",
             "audio_channels": 2,
-            "bitrate_kbps": 800
+            "bitrate_kbps": 2500
         }
 
 
@@ -81,30 +77,34 @@ def get_service_status():
 def scan_media_paths() -> List[str]:
     """
     Triggers a scan across all configured paths and returns a consolidated list
-    of media file paths found.
+    of ACTUAL file paths found on the file system.
     """
     monitored_paths = config_manager.get("monitored_paths", [])
-    
-    if not monitored_paths:
-        return []
-
     found_files = []
     
-    # MOCK IMPLEMENTATION: Simulating scan across configured paths
+    logger.info(f"Executing REAL file system scan for: {monitored_paths}")
+
     for path in monitored_paths:
-        # Generating deterministic mock data based on the monitored path
-        if "Movies" in path:
-            found_files.extend([
-                f"{path}/IronMan_1080p_hevc.mkv",
-                f"{path}/Avengers_720p_avc.mp4"
-            ])
-        elif "Shows" in path:
-            found_files.extend([
-                f"{path}/Series1_2160p_hevc_8ch.mkv",
-                f"{path}/OldSeries_640p_mpeg.mov"
-            ])
+        try:
+            # Check if the path exists before attempting to list contents
+            if not os.path.isdir(path):
+                logger.warning(f"Monitored path does not exist: {path}")
+                continue
+
+            for item in os.listdir(path):
+                full_path = os.path.join(path, item)
+                
+                if os.path.isfile(full_path):
+                    # Filter for common media extensions
+                    if item.lower().endswith(('.mkv', '.mp4', '.mov')):
+                        found_files.append(full_path)
+
+        except PermissionError:
+            logger.error(f"Permission denied accessing path: {path}")
+        except Exception as e:
+            logger.error(f"Error during scan of {path}: {e}")
     
-    print(f"Scanned paths: {monitored_paths}. Found {len(found_files)} files.")
+    logger.info(f"Scan complete. Found {len(found_files)} files.")
     return found_files
 
 
@@ -115,8 +115,7 @@ def get_file_metadata_endpoint(file_info: FilePath) -> Dict[str, Any]:
     """
     file_path = file_info.file_path
     
-    # Simulate the actual metadata extraction
-    metadata = _simulate_ffprobe(file_path)
+    metadata = _get_mock_metadata(file_path)
     
     if not metadata:
         raise HTTPException(status_code=404, detail=f"Metadata not found for file: {file_path}")

@@ -14,19 +14,33 @@ class ConfigManager:
         """
         Initializes the ConfigManager, loading both config.json and .env files.
         """
+        
+        # --- FIX: Determine the absolute directory of the configuration file ---
+        # Get the directory of the currently executing script (config.py)
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        # Re-resolve paths relative to the base_dir
+        abs_config_path = os.path.join(base_dir, config_path)
+        abs_env_path = os.path.join(base_dir, env_path)
+        
+        print(f"DEBUG: Attempting to load config from: {abs_config_path}")
+        print(f"DEBUG: Attempting to load .env from: {abs_env_path}")
+        # ----------------------------------------------------------------------
+        
         # Load environment variables from the .env file
-        load_dotenv(dotenv_path=env_path)
+        load_dotenv(dotenv_path=abs_env_path)
         
         self.config_data = {}
         # Load configuration from the config.json file
         try:
-            with open(config_path, 'r') as f:
+            # Use the corrected absolute path
+            with open(abs_config_path, 'r') as f:
                 self.config_data = json.load(f)
         except FileNotFoundError:
-            print(f"Warning: The configuration file '{config_path}' was not found. "
+            print(f"Warning: The configuration file '{abs_config_path}' was not found. "
                   "Continuing with default and environment variables only.")
         except json.JSONDecodeError:
-            print(f"Error: The configuration file '{config_path}' is not a valid JSON file.")
+            print(f"Error: The configuration file '{abs_config_path}' is not a valid JSON file.")
 
     def get(self, key, default=None):
         """
@@ -52,7 +66,3 @@ class ConfigManager:
         Returns all environment variables loaded from the .env file.
         """
         return os.environ
-
-if __name__ == "__main__":
-    # --- Example Usage (requires local dummy files) ---
-    print("This file contains the foundational ConfigManager class for the Media Tools service.")
