@@ -27,23 +27,30 @@ class FilePath(BaseModel):
 # Initialize Configuration
 config_manager = ConfigManager()
 
-# A simple mock for metadata extraction (This is fine to remain as we don't have ffprobe installed)
+# Mock function for metadata extraction
 def _get_mock_metadata(file_path: str) -> Dict[str, Any]:
     """
-    Simulates calling ffprobe to get structured media metadata.
-    This logic remains mock-based because we don't want a dependency on ffprobe
-    for the basic API service to run.
+    Simulates calling ffprobe to get structured media metadata by parsing
+    common quality keywords in the file path.
+    
+    This is essential for testing the Orchestrator's deterministic evaluation logic.
     """
-    # Look for patterns in the *real* file name provided by the orchestrator (e.g., test-1080p.mkv)
-    if "1080p" in file_path and "hevc" in file_path.lower():
+    path_lower = file_path.lower()
+    
+    # --- Define Mock Criteria based on filename patterns ---
+    
+    # CASE 1: Meets high-res HEVC criteria (for successful conversion)
+    if "1080p" in path_lower and "hevc" in path_lower:
         return {
             "file_path": file_path,
             "video_codec": "HEVC",
             "resolution": "1920x1080",
-            "audio_channels": 6,
+            "audio_channels": 6,  # Meets 6+ channel requirement
             "bitrate_kbps": 5000
         }
-    elif "2160p" in file_path:
+    
+    # CASE 2: Ultra-high res, meets all criteria
+    elif "2160p" in path_lower:
         return {
             "file_path": file_path,
             "video_codec": "HEVC",
@@ -51,16 +58,26 @@ def _get_mock_metadata(file_path: str) -> Dict[str, Any]:
             "audio_channels": 8,
             "bitrate_kbps": 12000
         }
-    else:
-        # Default/unwanted file metadata
+
+    # CASE 3: Fails resolution/codec criteria (AVC/lower-res - for skipping)
+    elif "720p" in path_lower or "avc" in path_lower:
         return {
             "file_path": file_path,
-            "video_codec": "AVC",
-            "resolution": "1280x720",
+            "video_codec": "AVC", # Fails HEVC check
+            "resolution": "1280x720", # Fails 1080p minimum check
             "audio_channels": 2,
             "bitrate_kbps": 2500
         }
-
+    
+    # CASE 4: Default/Unknown file (Fails everything - for skipping)
+    else:
+        return {
+            "file_path": file_path,
+            "video_codec": "MPEG",
+            "resolution": "640x480",
+            "audio_channels": 2,
+            "bitrate_kbps": 800
+        }
 
 # --- FastAPI Application ---
 
