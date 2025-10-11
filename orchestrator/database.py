@@ -1,5 +1,6 @@
 # orchestrator/database.py
 
+import os
 import sqlite3
 import json
 from datetime import datetime
@@ -79,6 +80,17 @@ class DatabaseManager:
             columns = [desc[0] for desc in cursor.description]
             return dict(zip(columns, row))
         return None
+
+    def list_all_files(self):
+        """
+        Retrieves all records from the media_files table.
+        Returns a list of dictionaries, one for each file.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM media_files")
+        rows = cursor.fetchall()
+        columns = [desc[0] for desc in cursor.description]
+        return [dict(zip(columns, row)) for row in rows]
 
     def close(self):
         """Closes the database connection."""

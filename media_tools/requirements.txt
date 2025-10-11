@@ -1,0 +1,14 @@
+# media_tools/requirements.txt
+
+# Web Framework and Server (required for API service)
+fastapi
+uvicorn
+
+# Configuration Management
+python-dotenv
+
+# --- Testing Dependencies ---
+# Pytest core for running tests
+pytest
+# httpx is required for the FastAPI TestClient (mocking HTTP requests)
+httpx

@@ -4,6 +4,7 @@ import os
 import sys
 import time
 import errno
+import json
 from datetime import datetime
 
 # Add the parent directory to the path to import sibling modules
@@ -11,6 +12,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from orchestrator.config import ConfigManager
 from orchestrator.engine import CinchroEngine
+from orchestrator.database import DatabaseManager
 
 if __name__ == "__main__":
     """
@@ -25,6 +27,20 @@ if __name__ == "__main__":
     config_path = os.path.join(orchestrator_dir, 'config.json')
     env_path = os.path.join(orchestrator_dir, '.env')
     lock_path = os.path.join(orchestrator_dir, 'cinchro.lock')
+
+    # Check for a command-line argument to list database contents
+    if len(sys.argv) > 1 and sys.argv[1] == "list":
+        try:
+            config_manager = ConfigManager(config_path=config_path, env_path=env_path)
+            db_manager = DatabaseManager(config_manager.get("DATABASE_PATH"))
+            all_files = db_manager.list_all_files()
+            print("\n--- Cinchro Database Contents ---")
+            print(json.dumps(all_files, indent=2))
+            db_manager.close()
+            sys.exit(0)
+        except Exception as e:
+            print(f"Error listing database contents: {e}")
+            sys.exit(1)
     
     # 1. Single-Instance Lock Mechanism
     try:
