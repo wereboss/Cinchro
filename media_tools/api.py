@@ -80,7 +80,7 @@ def scan_media_paths() -> List[str]:
     of ACTUAL file paths found on the file system.
     """
     monitored_paths = config_manager.get("monitored_paths", [])
-    found_files = []
+    all_found_files = [] # Renaming to be explicit about scope
     
     logger.info(f"Executing REAL file system scan for: {monitored_paths}")
 
@@ -88,24 +88,26 @@ def scan_media_paths() -> List[str]:
         try:
             # Check if the path exists before attempting to list contents
             if not os.path.isdir(path):
-                logger.warning(f"Monitored path does not exist: {path}")
+                logger.warning(f"Monitored path does not exist or is inaccessible: {path}")
                 continue
 
+            # List files and append directly to the master list
             for item in os.listdir(path):
                 full_path = os.path.join(path, item)
                 
                 if os.path.isfile(full_path):
                     # Filter for common media extensions
                     if item.lower().endswith(('.mkv', '.mp4', '.mov')):
-                        found_files.append(full_path)
+                        all_found_files.append(full_path)
 
         except PermissionError:
             logger.error(f"Permission denied accessing path: {path}")
         except Exception as e:
             logger.error(f"Error during scan of {path}: {e}")
     
-    logger.info(f"Scan complete. Found {len(found_files)} files.")
-    return found_files
+    logger.info(f"Scan complete. Found {len(all_found_files)} files.")
+    return all_found_files # Returning the consolidated list
+
 
 
 @app.post("/get-metadata", response_model=Dict[str, Any])
