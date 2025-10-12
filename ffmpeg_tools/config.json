@@ -1,0 +1,20 @@
+{
+  "api_host": "0.0.0.0",
+  "api_port": 5001,
+  
+  "database_path": "./ffmpeg_jobs.db",
+  
+  "ffmpeg_path": "/usr/bin/ffmpeg",
+  "rsync_path": "/usr/bin/rsync",
+  
+  "media_machine_config": {
+    "rsync_user": "cinchro_user",
+    "storage_host": "<UNIX_STORAGE_MACHINE_IP>",
+    "archive_root_dir": "/mnt/media/Archive" 
+  },
+  
+  "transfer_paths": {
+    "local_temp_dir": "/tmp/cinchro_linux_jobs/temp",
+    "local_output_dir": "/tmp/cinchro_linux_jobs/output"
+  }
+}

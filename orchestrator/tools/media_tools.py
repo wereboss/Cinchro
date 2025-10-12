@@ -1,12 +1,13 @@
 # orchestrator/tools/media_tools.py
 
 import json
-import random
+import requests
+from typing import List, Dict, Any
 
 class MediaTools:
     """
-    A collection of tools for the Cinchro Agent to interact with the
-    remote media management service on the Unix machine.
+    A collection of tools for the Cinchro Orchestrator to interact with the
+    remote Media Tools service (Unix Machine) via REST API calls.
     """
 
     def __init__(self, api_base_url, use_dummy_data=False):
@@ -15,92 +16,57 @@ class MediaTools:
         self.use_dummy_data = use_dummy_data
         print(f"MediaTools initialized. Use dummy data: {self.use_dummy_data}")
 
-    def list_media_files(self, location: str) -> list:
+    def list_media_files(self, location: str = "") -> List[str]:
         """
-        Tool: Lists media files in a given directory.
-        
-        Args:
-            location (str): The path to the directory to scan.
-            
-        Returns:
-            list: A list of file paths.
+        Tool: Fetches a list of media files from the remote service.
+        NOTE: The location parameter is now deprecated/ignored in the API call, 
+              but kept in the function signature for compatibility.
         """
         if self.use_dummy_data:
-            print(f"Using dummy data for list_media_files at location: {location}")
-            # Simulating dummy data for testing the agent's logic
+            print(f"MOCK: Returning hardcoded file list.")
+            # Hardcoded dummy data remains as a fallback/test case
             dummy_files = [
                 f"{location}/movie_1080p_hevc.mkv",
                 f"{location}/episode_720p_avc.mp4",
-                f"{location}/home_video_480p_avi.mov",
-                f"{location}/concert_2160p_hevc.mkv"
+                f"{location}/home_video_480p_avi.mov"
             ]
             return dummy_files
         
         else:
-            print(f"Making real API call to {self.api_base_url}/list_files at location: {location}")
-            # In the future, this is where the real API call logic will go.
-            # Example: requests.get(f"{self.api_base_url}/list_files?location={location}")
-            return []
+            # FIX: Use the correct live API endpoint: /scan-files
+            endpoint = f"{self.api_base_url}/scan-files"
+            try:
+                response = requests.get(endpoint)
+                response.raise_for_status()  # Raise an HTTPError for bad status codes
+                
+                # Check for a 404 (Not Found) or 405 (Method Not Allowed) from the API
+                if response.status_code == 404:
+                    print(f"ERROR: Endpoint not found. Check if Media Tools service is running at {endpoint}")
+                    return []
+                
+                return response.json()
+            except requests.exceptions.RequestException as e:
+                print(f"ERROR: Failed to connect to Media Tools API at {endpoint}. Error: {e}")
+                return []
 
-    def get_file_metadata(self, file_path: str) -> dict:
+    def get_file_metadata(self, file_path: str) -> Dict[str, Any]:
         """
-        Tool: Retrieves detailed metadata for a specific media file.
-        
-        Args:
-            file_path (str): The path of the file to inspect.
-            
-        Returns:
-            dict: A dictionary containing the file's metadata.
+        Tool: Retrieves detailed metadata for a specific media file from the remote service.
         """
         if self.use_dummy_data:
-            print(f"Using dummy data for get_file_metadata for file: {file_path}")
-            # Simulating different metadata based on the dummy file paths
+            print(f"MOCK: Returning hardcoded metadata for file: {file_path}")
+            # Mocked metadata remains for testing purposes
             if "1080p_hevc" in file_path:
-                return {
-                    "file_path": file_path,
-                    "video_codec": "HEVC",
-                    "resolution": "1920x1080",
-                    "audio_channels": 8
-                }
-            elif "720p_avc" in file_path:
-                return {
-                    "file_path": file_path,
-                    "video_codec": "AVC",
-                    "resolution": "1280x720",
-                    "audio_channels": 2
-                }
-            elif "2160p_hevc" in file_path:
-                return {
-                    "file_path": file_path,
-                    "video_codec": "HEVC",
-                    "resolution": "3840x2160",
-                    "audio_channels": 6
-                }
+                return {"video_codec": "HEVC", "resolution": "1920x1080", "audio_channels": 8}
             else:
-                return {
-                    "file_path": file_path,
-                    "video_codec": "MPEG-4",
-                    "resolution": "640x480",
-                    "audio_channels": 2
-                }
+                return {"video_codec": "AVC", "resolution": "1280x720", "audio_channels": 2}
         
         else:
-            print(f"Making real API call to {self.api_base_url}/get_metadata for file: {file_path}")
-            # In the future, this is where the real API call logic will go.
-            return {}
-            
-if __name__ == '__main__':
-    # Example usage with dummy data
-    print("--- Testing with dummy data ---")
-    tools = MediaTools(api_base_url="http://unix_machine_ip:5000", use_dummy_data=True)
-    files = tools.list_media_files(location="/media/movies")
-    print(f"Files found: {files}")
-    
-    metadata = tools.get_file_metadata(files[0])
-    print(f"Metadata for {files[0]}: {metadata}")
-    
-    # Example usage without dummy data (simulating real API)
-    print("\n--- Testing with real API (no dummy data) ---")
-    real_tools = MediaTools(api_base_url="http://unix_machine_ip:5000", use_dummy_data=False)
-    real_tools.list_media_files(location="/media/movies")
-    real_tools.get_file_metadata(files[0])
+            endpoint = f"{self.api_base_url}/get-metadata"
+            try:
+                response = requests.post(endpoint, json={"file_path": file_path})
+                response.raise_for_status()
+                return response.json()
+            except requests.exceptions.RequestException as e:
+                print(f"ERROR: Failed to fetch metadata from {endpoint}. Error: {e}")
+                return {}

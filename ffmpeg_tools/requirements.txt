@@ -1,0 +1,15 @@
+# ffmpeg_tools/requirements.txt
+
+# Web Framework and Server (required for API service)
+fastapi
+uvicorn
+
+# Configuration Management
+python-dotenv
+
+# System Utilities (for checking process status during conversion)
+psutil 
+
+# --- Testing Dependencies ---
+pytest
+httpx

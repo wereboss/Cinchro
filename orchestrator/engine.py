@@ -51,29 +51,55 @@ class CinchroEngine:
     
     def evaluate_files(self):
         """
-        Evaluates files with a 'pending_evaluation' status against predefined
-        quality metrics and updates their status.
+        Evaluates files with a 'pending_scan' status against the updated
+        standard (resolution > 480p) and updates their status.
         """
         print("--- Evaluating pending files ---")
-        pending_files = self.db_manager.get_files_by_status('pending_evaluation')
+        
+        pending_files = self.db_manager.get_files_by_status('pending_scan')
         
         for file_path in pending_files:
-            metadata = self.media_tools.get_file_metadata(file_path)
+            # Call metadata API (now works live)
+            metadata = self.media_tools.get_file_metadata(file_path) 
             
-            # Predefined evaluation rules
-            is_high_res = "1920x1080" in metadata.get('resolution', '')
-            is_hevc = metadata.get('video_codec', '').upper() == 'HEVC'
+            # --- UPDATED CINCHRO CRITERIA ---
+            resolution_str = metadata.get('resolution', '0x0')
+            height = 0
             
-            if is_high_res and is_hevc:
+            # Safely extract height (the second number in WxH format)
+            try:
+                if 'x' in resolution_str:
+                    height = int(resolution_str.split('x')[1])
+            except (ValueError, IndexError):
+                pass # If parsing fails, height remains 0
+
+            # Cinchro New Standard: Must be greater than 480p
+            is_good_resolution = height > 480
+            
+            # The target output codec is always H265/HEVC, so we look for files that are *not* already H265
+            is_already_target_codec = metadata.get('video_codec', '').upper() in ('HEVC', 'H265')
+            
+            if is_good_resolution and not is_already_target_codec:
                 new_status = 'ready_for_conversion'
-                notes = "Meets all quality standards."
+                notes = f"Nominated: Resolution {resolution_str} > 480p, and needs HEVC conversion (currently {metadata.get('video_codec')})."
                 print(f"File {file_path} is ready for conversion.")
             else:
+                reason = []
+                if not is_good_resolution:
+                    reason.append(f"Resolution ({resolution_str}) is 480p or lower.")
+                if is_already_target_codec:
+                    reason.append(f"Already {metadata.get('video_codec')} codec (no conversion needed).")
+                if not reason:
+                    reason.append("Failed generic check.") # Fallback for unexpected case
+
                 new_status = 'skipped'
-                notes = "Does not meet quality standards (not high-res or HEVC)."
+                notes = f"Skipped: {' '.join(reason)}"
                 print(f"File {file_path} skipped.")
 
             self.db_manager.update_file_status(file_path, new_status, notes=notes)
+
+
+
 
     def process_ready_files(self):
         """
