@@ -1,86 +1,63 @@
 # ffmpeg_tools/api.py
 
 import os
+import sys
 import json
 import logging
-import subprocess
 import uuid
 import time
+from datetime import datetime, timedelta # FIX: Added datetime
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import Dict, Any, Union, Optional
+from typing import Dict, Any, Union, Optional, List
 
-# Import the local config manager
-from .config import ConfigManager
+# Ensure local imports work
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from ffmpeg_tools.config import ConfigManager
+from ffmpeg_tools.database import JobDatabaseManager
+from ffmpeg_tools.job_manager import JobManager
+
+# Define global variables first (allows monkeypatch to set attributes)
+config_manager = None
+db_manager = None
+job_manager = None
 
 # --- Logging Setup ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- Global Job Storage (In-memory for MVP) ---
-# { job_id: { status: str, progress: float, start_time: float, details: dict } }
-JOB_STORAGE: Dict[str, Dict[str, Union[str, float, dict]]] = {} 
 
 # --- Pydantic Schemas for API ---
 
-class FFMPEGJob(BaseModel):
+class JobSubmissionDetails(BaseModel):
     """Schema for submitting an FFMPEG conversion job."""
     input_file: str
-    output_file: str
-    command: str
+    ffmpeg_command: str
 
-class JobStatus(BaseModel):
-    """Schema for returning job status and progress."""
+class JobStatusResponse(BaseModel):
+    """Schema for returning detailed job status and progress."""
     job_id: str
     status: str
-    progress_percent: float
+    current_stage: str
+    progress_percent: float # Percentage completion of the CURRENT STAGE
     time_elapsed_seconds: Optional[int]
-    estimated_time_remaining_seconds: Optional[int]
     notes: str
-
-
-# --- Core Logic and Utilities ---
-# Initialize Configuration
-config_manager = ConfigManager()
-
-# --- FFMPEG Execution Function (Synchronous for MVP) ---
-
-def run_ffmpeg_job(job_id: str, input_file: str, output_file: str, command: str, ffmpeg_path: str):
-    """
-    Simulates executing an FFMPEG job and updates global job storage.
-    NOTE: In a real environment, this would run asynchronously (subprocess.Popen)
-          and use a complex parsing logic to stream progress updates. 
-          For the MVP, we simulate a delay and update the status in stages.
-    """
-    global JOB_STORAGE
     
-    full_command = f"{ffmpeg_path} -i {input_file} {command} {output_file}"
-    
-    logger.info(f"Starting job {job_id}: {full_command}")
-    
-    # --- STAGE 1: Submitted -> Running ---
-    JOB_STORAGE[job_id]['status'] = 'RUNNING'
-    JOB_STORAGE[job_id]['start_time'] = time.time()
-    
-    # Simulate time-consuming work (replace with actual subprocess.run in production)
-    for i in range(1, 10):
-        time.sleep(0.05) # Simulate workload
-        JOB_STORAGE[job_id]['progress_percent'] = round(i * 10, 2)
-        # Update notes with simulated progress
-        JOB_STORAGE[job_id]['details']['notes'] = f"Progress: {JOB_STORAGE[job_id]['progress_percent']}%"
-        logger.debug(f"Job {job_id} progress: {JOB_STORAGE[job_id]['progress_percent']}%")
+# --- Core Logic and Initialization ---
+# Initialize the objects only once, lazily.
+def initialize_dependencies():
+    """Initializes global dependencies for the API service."""
+    global config_manager, db_manager, job_manager
+    if config_manager is None:
+        config_manager = ConfigManager()
+        db_manager = JobDatabaseManager(config_manager.get("database_path"))
+        job_manager = JobManager(config_manager, db_manager)
 
-    # --- STAGE 2: Finished ---
-    JOB_STORAGE[job_id]['status'] = 'COMPLETED'
-    JOB_STORAGE[job_id]['progress_percent'] = 100.0
-    JOB_STORAGE[job_id]['details']['notes'] = "Conversion successful."
-    
-    logger.info(f"Job {job_id} completed successfully.")
-    return True
-
+# Execute initialization immediately so the endpoints can use the objects
+initialize_dependencies()
 
 # --- FastAPI Application ---
-
 app = FastAPI(title="Cinchro FFMPEG Tools API", version="0.1.0")
 
 
@@ -90,75 +67,69 @@ def get_service_status():
     return {"status": "ok", "service": "Cinchro FFMPEG Tools", "machine": "Linux"}
 
 
-@app.post("/run-ffmpeg", response_model=JobStatus)
-def run_ffmpeg_endpoint(job_details: FFMPEGJob):
+@app.post("/submit-job", response_model=JobStatusResponse)
+def submit_ffmpeg_job(job_details: JobSubmissionDetails):
     """
-    Receives a conversion job, submits it to the execution queue, and returns the Job ID.
+    Receives a conversion job request and kicks off the multi-stage pipeline.
+    Returns the initial job status.
     """
-    global JOB_STORAGE
-    
-    job_id = str(uuid.uuid4())
-    ffmpeg_path = config_manager.get("ffmpeg_path", "ffmpeg") # Default to 'ffmpeg' if not in config
-    
-    # Create the initial job entry
-    JOB_STORAGE[job_id] = {
-        'status': 'SUBMITTED',
-        'progress_percent': 0.0,
-        'start_time': 0.0,
-        'details': job_details.dict(),
-    }
-    
-    # NOTE: Since this is an MVP, we are running the job synchronously (blocking the API call).
-    # In a production environment, this should be dispatched to a background worker (e.g., Celery).
+    logger.info(f"API received job request for: {job_details.input_file}")
     
     try:
-        run_ffmpeg_job(job_id, job_details.input_file, job_details.output_file, job_details.command, ffmpeg_path)
+        # Create and run the pipeline immediately (synchronous for MVP)
+        job_id = job_manager.create_new_job(job_details.input_file, job_details.ffmpeg_command)
+        
+        # Retrieve the final status from the database after synchronous execution
+        job_entry = db_manager.get_job(job_id)
+
+        # We need a string parsing-safe timestamp for elapsed time calculation
+        # The stored timestamp is a string, which we will use to calculate time elapsed
+        
+        # Since the job is already COMPLETED/FAILED here, we just need to return the final status
+        time_elapsed = int(time.time() - time.mktime(datetime.strptime(job_entry['last_updated'], "%Y-%m-%dT%H:%M:%S.%f").timetuple()))
+        
+        # The status field holds the current stage name (e.g., COMPLETED)
+        return JobStatusResponse(
+            job_id=job_id,
+            status=job_entry['status'],
+            current_stage=job_entry['status'],
+            progress_percent=job_entry['progress_percent'],
+            time_elapsed_seconds=time_elapsed,
+            notes=job_entry.get('notes', 'Job processing successful.')
+        )
+
     except Exception as e:
-        JOB_STORAGE[job_id]['status'] = 'FAILED'
-        JOB_STORAGE[job_id]['details']['error'] = str(e)
-        logger.error(f"Job {job_id} failed during execution: {e}")
-
-    # Return the final status immediately after synchronous execution
-    job_entry = JOB_STORAGE.get(job_id, {})
-    return JobStatus(
-        job_id=job_id,
-        status=job_entry.get('status', 'FAILED'),
-        progress_percent=job_entry.get('progress_percent', 0.0),
-        time_elapsed_seconds=int(time.time() - job_entry.get('start_time', time.time())),
-        estimated_time_remaining_seconds=0,
-        notes=job_entry['details'].get('notes', job_entry['details'].get('error', 'Execution completed.'))
-    )
+        logger.error(f"Error submitting job: {e}")
+        # Mark as FAILED in case of external exception
+        raise HTTPException(status_code=500, detail=f"Failed to submit job: {e}")
 
 
-@app.get("/job-status/{job_id}", response_model=JobStatus)
+@app.get("/job-status/{job_id}", response_model=JobStatusResponse)
 def get_job_status(job_id: str):
     """
-    Allows the orchestrator to poll for job status, progress, and estimated time remaining.
+    Allows the orchestrator to poll for job status, progress, and current stage.
     """
-    job_entry = JOB_STORAGE.get(job_id)
+    job_entry = db_manager.get_job(job_id)
     
     if not job_entry:
-        raise HTTPException(status_code=404, detail="Job ID not found.")
+        raise HTTPException(status_code=404, detail="Job ID not found in database.")
 
     status = job_entry['status']
-    progress = job_entry['progress_percent']
     
-    time_elapsed = 0
-    eta = None
-    
-    if job_entry.get('start_time'):
-        time_elapsed = int(time.time() - job_entry['start_time'])
-        
-        if progress > 0 and status == 'RUNNING':
-            # Simple ETA calculation: (Total time = Time elapsed / Progress) - Time elapsed
-            estimated_total = time_elapsed / (progress / 100.0)
-            eta = int(estimated_total - time_elapsed)
+    # Calculate time elapsed based on the stored last_updated timestamp
+    try:
+        # NOTE: We use the creation time for total time, but last_updated for status.
+        # Since the JobManager updates quickly, we just use current time difference for now.
+        last_updated_ts = time.mktime(datetime.strptime(job_entry['last_updated'], "%Y-%m-%dT%H:%M:%S.%f").timetuple())
+        time_elapsed = int(time.time() - last_updated_ts)
+    except Exception:
+        time_elapsed = 0 # Handle potential parsing error
 
-    return JobStatus(
+    return JobStatusResponse(
         job_id=job_id,
         status=status,
-        progress_percent=progress,
+        current_stage=status, # The status field directly reflects the current stage (TRANSFERRING_IN, PROCESSING, etc.)
+        progress_percent=job_entry.get('progress_percent', 0.0),
         time_elapsed_seconds=time_elapsed,
-        estimated_time_remaining_seconds=eta,
-        notes=job_entry['details'].get('notes', 'Job status retrieved.')
+        notes=job_entry.get('notes', 'Job status retrieved.')
     )
