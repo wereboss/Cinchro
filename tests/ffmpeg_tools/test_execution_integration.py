@@ -5,7 +5,7 @@ import os
 import subprocess
 import time
 import shutil
-import uuid
+import uuid # Now necessary for test_03
 from unittest.mock import MagicMock
 from subprocess import CalledProcessError, CompletedProcess
 
@@ -15,18 +15,16 @@ from ffmpeg_tools.config import ConfigManager
 from ffmpeg_tools.database import JobDatabaseManager
 
 # --- ENVIRONMENT CONFIGURATION ---
-# Check if integration tests are enabled (User must set this manually)
 INTEGRATION_TESTS_ENABLED = os.environ.get("RUN_FFMPEG_INTEGRATION_TESTS", "false").lower() == "true"
 pytestmark = pytest.mark.skipif(
     not INTEGRATION_TESTS_ENABLED,
     reason="Requires RUN_FFMPEG_INTEGRATION_TESTS=true environment variable to run shell commands."
 )
 
-# --- FIXTURES (Setup and cleanup remain the same) ---
-
+# --- FIXTURES ---
 @pytest.fixture(scope="module") 
 def setup_job_manager(ffmpeg_config_files, ffmpeg_db_path):
-    # ... (body of setup_job_manager fixture remains the same) ...
+    # ... (body of setup_job_manager fixture remains the same - ensures real execution paths are used) ...
     config_manager = ConfigManager(
         config_path=str(ffmpeg_config_files / 'config.json'),
         env_path=str(ffmpeg_config_files / '.env')
@@ -42,66 +40,87 @@ def setup_job_manager(ffmpeg_config_files, ffmpeg_db_path):
     manager = JobManager(config_manager, db_manager)
     return manager
 
-@pytest.fixture
-def mock_subprocess_run(monkeypatch):
-    """Fixture to mock subprocess.run for faking shell command execution (used in test 02)."""
-    # ... (body of mock_subprocess_run remains the same) ...
-    def mock_run(*args, **kwargs):
-        return CompletedProcess(args[0], 0, stdout="Mock command output", stderr="")
-    mock = MagicMock(side_effect=mock_run)
-    monkeypatch.setattr(subprocess, 'run', mock)
-    return mock
 
-# --- LIVE INTEGRATION TEST (New) ---
+# Note: We keep the mock_subprocess_run fixture defined here, but we will NOT 
+# use it for the FFMPEG test, instead calling subprocess directly.
+
+# --- INTEGRATION TESTS ---
 
 def test_03_live_rsync_pull_transfer(setup_job_manager):
     """
     INTEGRATION: Tests the Rsync PULL (TRANSFERRING_IN) stage using a live subprocess call.
-    This validates SSH command construction, key usage, and file placement.
-    
-    NOTE: Requires CINCHRO_TEST_PULL_FILE and a configured SSH key/user/host in config.
+    (This test must run first to provide the file for test_04).
     """
     manager = setup_job_manager
     
-    # --- 1. Get Live Environment Inputs ---
-    # We retrieve the actual file path from the remote machine via environment variable
     remote_source_file = os.environ.get("CINCHRO_TEST_PULL_FILE")
-    
     if not remote_source_file:
         pytest.skip("Skipping live Rsync test: CINCHRO_TEST_PULL_FILE environment variable not set.")
     
-    # Define necessary paths
-    remote_pull_source = f"{manager.RSYNC_USER}@{manager.STORAGE_HOST}:{remote_source_file}"
     local_temp_file = os.path.join(manager.LOCAL_TEMP_DIR, os.path.basename(remote_source_file))
     
     # Ensure the local temp file does not exist before the transfer
     if os.path.exists(local_temp_file):
         os.remove(local_temp_file)
     
-    # 2. --- Execute the Live Rsync PULL Command ---
+    remote_pull_source = f"{manager.RSYNC_USER}@{manager.STORAGE_HOST}:{remote_source_file}"
+    
     print(f"\nAttempting live Rsync PULL: {remote_pull_source} -> {manager.LOCAL_TEMP_DIR}")
     
-    # Note: We must call the internal method that uses the REAL subprocess.run
+    # Execute the Live Rsync PULL Command (calls manager._run_rsync_transfer which uses subprocess.run)
     success = manager._run_rsync_transfer(
-        job_id=str(uuid.uuid4()), # Use a temporary UUID
+        job_id=str(uuid.uuid4()),
         src_path=remote_pull_source,
         dest_path=manager.LOCAL_TEMP_DIR,
         stage_status="TRANSFERRING_IN"
     )
 
-    # 3. --- Assertions ---
-    
-    # Assert transfer success (rsync return code 0)
+    # Assertions
     assert success is True, "Rsync transfer failed. Check SSH keys, user, host, and remote file path."
-    
-    # Assert the file arrived at the local temp directory
     assert os.path.exists(local_temp_file), f"Transferred file not found at local path: {local_temp_file}"
 
-    # Cleanup: Remove the file for the next test run
-    # os.remove(local_temp_file)
+    # NOTE: File is NOT removed here; it is used by test_04.
 
-# --- MOCK TESTS (REMAINING CODE FOR REFERENCE) ---
-# ... (test_01_ffmpeg_path_validation remains the same) ...
-# ... (test_02_rsync_command_failure_handling remains the same) ...
-# ... (test_03_full_pipeline_success_mocked remains the same) ...
-# ... (test_04_pipeline_fails_on_transfer remains the same) ...
+
+def test_04_live_ffmpeg_processing(setup_job_manager, monkeypatch):
+    """
+    INTEGRATION: Tests the FFMPEG PROCESSING stage using the file pulled in test_03.
+    (Emulates Stage 3 of the pipeline).
+    """
+    manager = setup_job_manager
+    remote_source_file = os.environ.get("CINCHRO_TEST_PULL_FILE")
+    
+    if not remote_source_file or not os.path.exists(os.path.join(manager.LOCAL_TEMP_DIR, os.path.basename(remote_source_file))):
+        pytest.skip("Skipping FFMPEG test: Dependent file not found (Run test_03 first).")
+
+    # Define paths based on the pulled file
+    base_filename = os.path.basename(remote_source_file)
+    local_input_file = os.path.join(manager.LOCAL_TEMP_DIR, base_filename)
+    local_output_file = os.path.join(manager.LOCAL_OUTPUT_DIR, f"PROCESSED_{base_filename}.mp4")
+
+    # Ensure output file doesn't exist initially
+    if os.path.exists(local_output_file):
+        os.remove(local_output_file)
+    
+    # Mock the internal sleep function to speed up the test simulation (3 seconds -> milliseconds)
+    mock_sleep = MagicMock()
+    monkeypatch.setattr(time, 'sleep', mock_sleep)
+
+    # 1. Define the FFMPEG Command (H.264 to H.265/HEVC, compressed to 360p)
+    ffmpeg_command = "-c:v libx265 -crf 28 -s 640x360 -y" # -y force overwrite
+
+    # 2. Create Job in DB (Necessary for JobManager to operate)
+    job_id = str(uuid.uuid4())
+    manager.db.create_job(job_id, remote_source_file, local_output_file, ffmpeg_command)
+
+    # 3. Execute the FFMPEG conversion
+    print(f"\nAttempting FFMPEG conversion: {local_input_file} -> {local_output_file}")
+    success = manager._run_ffmpeg_conversion(job_id, local_input_file, local_output_file, ffmpeg_command)
+
+    # 4. Assertions
+    assert success is True, "FFMPEG processing failed or raised an unexpected error."
+    assert os.path.exists(local_output_file), "FFMPEG output file was not created."
+    
+    # Final Cleanup
+    # os.remove(local_output_file)
+    # os.remove(local_input_file) # Clean up the pulled file as well

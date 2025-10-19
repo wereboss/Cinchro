@@ -53,12 +53,21 @@ class JobManager:
         """Generates a job ID and initializes the job in the local database."""
         job_id = str(uuid.uuid4())
         
-        # Determine unique local file names based on job ID
+        # --- PATH CONSTRUCTION LOGIC (The Fix) ---
         base_name = os.path.basename(input_file)
-        # Note: We must ensure the local paths are unique to prevent collisions
-        local_output_file = os.path.join(self.LOCAL_OUTPUT_DIR, f"{job_id}_{base_name}.mp4")
         
-        # Create initial DB record
+        # 1. Strip the original extension cleanly (e.g., Trials720.mp4 -> Trials720)
+        file_root, original_ext = os.path.splitext(base_name)
+        
+        # 2. Add the target extension (.mp4, as assumed for output)
+        local_output_filename = f"{job_id}_{file_root}.mp4"
+        local_output_file = os.path.join(self.LOCAL_OUTPUT_DIR, local_output_filename)
+        
+        # DEBUG CHECK: Log the final determined paths
+        print(f"DEBUG: Input Base: {base_name}, Output Final: {local_output_file}")
+        # --- END PATH CONSTRUCTION LOGIC ---
+
+        # Create initial DB record (Note: local_output_file is passed as output_file)
         self.db.create_job(job_id, input_file, local_output_file, ffmpeg_command)
         
         # Immediately kick off the pipeline (synchronously for this MVP)
@@ -114,35 +123,60 @@ class JobManager:
             return False
 
     def _run_ffmpeg_conversion(self, job_id: str, local_input: str, local_output: str, command: str) -> bool:
-        """Simulates/runs FFMPEG processing with progress updates."""
+        """
+        Executes the FFMPEG conversion process using subprocess.
+        Note: The progress update logic (time.sleep loop) is removed for this test,
+        as we are now executing the single, real command synchronously.
+        """
         
         self.db.update_job_status(job_id, "PROCESSING", progress=0.0, notes="Starting FFMPEG conversion.")
-        print(f"Job {job_id}: FFMPEG conversion started.")
+        print(f"Job {job_id}: FFMPEG conversion started. Output target: {local_output}")
 
+        # 1. Construct the FFMPEG Command
+        # The command includes input, output, and parameters read from the job
+        
+        # We must carefully build the command list to avoid shell injection and parsing issues.
+        # We assume command is a string like: "-c:v libx265 -crf 28 -s 640x360 -y"
+        
+        ffmpeg_cmd = [self.FFMPEG_PATH, '-i', local_input]
+        ffmpeg_cmd.extend(command.split())
+        ffmpeg_cmd.append(local_output)
+        
         try:
-            # This is the actual FFMPEG command structure
-            ffmpeg_cmd = [self.FFMPEG_PATH, '-i', local_input]
-            ffmpeg_cmd.extend(command.split())
-            ffmpeg_cmd.append(local_output)
+            # 2. Execute the FFMPEG process LIVE
+            result = subprocess.run(
+                ffmpeg_cmd,
+                capture_output=True,
+                text=True,
+                check=True # Will raise CalledProcessError on non-zero exit code
+            )
             
-            # Simulate a 3-second conversion process for the MVP
-            total_duration = 3
-            start_time = time.time()
+            # The synchronous call is complete. Update DB.
+            self.db.update_job_status(job_id, "PROCESSING_COMPLETE", progress=100.0, notes="FFMPEG finished successfully.")
             
-            # --- Simulated FFMPEG Progress Tracking ---
-            for i in range(1, 11):
-                time.sleep(total_duration / 10)
-                progress = i * 10.0
-                self.db.update_job_status(job_id, "PROCESSING", progress=progress)
-                print(f"Job {job_id}: Progress {progress}%")
+            # Print FFMPEG output for debugging purposes
+            print(f"FFMPEG STDOUT:\n{result.stdout}")
+            print(f"FFMPEG STDERR (Errors/Warnings):\n{result.stderr}")
             
-            # In a real environment, the final output would be checked via os.path.exists(local_output)
-            
-            self.db.update_job_status(job_id, "PROCESSING_COMPLETE", progress=100.0, notes="FFMPEG finished.")
+            # 3. Final verification that the file exists on disk
+            if not os.path.exists(local_output):
+                raise FileNotFoundError(f"FFMPEG reported success, but file was not found at {local_output}")
+
             return True
 
+        except subprocess.CalledProcessError as e:
+            error_note = f"FFMPEG EXECUTION FAILED. Command exited with code {e.returncode}. STDERR: {e.stderr}"
+            print(error_note)
+            self.db.update_job_status(job_id, "PROCESSING_FAILED", notes=error_note)
+            return False
+        except FileNotFoundError as e:
+            error_note = f"FFMPEG failed to create output file: {e}"
+            print(error_note)
+            self.db.update_job_status(job_id, "PROCESSING_FAILED", notes=error_note)
+            return False
         except Exception as e:
-            error_note = f"FFMPEG PROCESSING FAILED: {e}"
+            error_note = f"Unexpected error during FFMPEG process: {e}"
+            print(error_note)
             self.db.update_job_status(job_id, "PROCESSING_FAILED", notes=error_note)
             return False
 
