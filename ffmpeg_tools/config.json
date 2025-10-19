@@ -8,13 +8,13 @@
   "rsync_path": "/usr/bin/rsync",
   
   "media_machine_config": {
-    "rsync_user": "cinchro_user",
-    "storage_host": "<UNIX_STORAGE_MACHINE_IP>",
-    "archive_root_dir": "/mnt/media/Archive" 
+    "rsync_user": "sayang",
+    "storage_host": "192.168.0.112",
+    "archive_root_dir": "/Users/sri/Movies/Archive" 
   },
   
   "transfer_paths": {
-    "local_temp_dir": "/tmp/cinchro_linux_jobs/temp",
-    "local_output_dir": "/tmp/cinchro_linux_jobs/output"
+    "local_temp_dir": "/home/sayang/Videos/Archive",
+    "local_output_dir": "/home/sayang/Videos/cinchro"
   }
 }
