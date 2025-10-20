@@ -1,9 +1,8 @@
 {
   "monitored_paths": [
-    "/mnt/media/Movies",
-    "/mnt/media/Shows",
-    "/mnt/archive/Old_Content"
+    "/Users/sri/Movies/cinchro_tests/Movies",
+    "/Users/sri/Movies/cinchro_tests/Music"
   ],
   "api_host": "0.0.0.0",
-  "api_port": 5000
+  "api_port": 5021
 }

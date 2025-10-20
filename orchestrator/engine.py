@@ -110,11 +110,20 @@ class CinchroEngine:
         
         for file_path in ready_files:
             # Example conversion logic and command
-            output_file = file_path.replace(".mkv", ".mp4")
-            command = f"ffmpeg -i '{file_path}' -c:v copy -c:a aac -b:a 192k '{output_file}'"
             
+            # FIX: Send ONLY the conversion parameters (codec, resolution, etc.)
+            # The input/output paths are handled by the FFMPEG Tools API.
+            conversion_parameters = "-c:v libx265 -crf 28 -s 640x360" # Simplified for MVP
+            
+            # We no longer need to calculate output_file here
             print(f"Initiating conversion for: {file_path}")
-            job_info = self.ffmpeg_tools.run_ffmpeg_command(command, file_path, output_file)
+            
+            # Use the corrected API call signature
+            job_info = self.ffmpeg_tools.run_ffmpeg_command(
+                command=conversion_parameters, 
+                input_file=file_path,
+                output_file="ignored" # This is a legacy argument but remains for compatibility
+            )
             
             # Update database status
             self.db_manager.update_file_status(

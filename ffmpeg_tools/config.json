@@ -10,7 +10,7 @@
   "media_machine_config": {
     "rsync_user": "sayang",
     "storage_host": "192.168.0.112",
-    "archive_root_dir": "/Users/sri/Movies/Archive" 
+    "archive_root_dir": "/Users/sri/Movies/cinchro_tests/Archive" 
   },
   
   "transfer_paths": {

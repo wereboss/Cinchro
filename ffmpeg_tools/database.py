@@ -1,18 +1,19 @@
 # ffmpeg_tools/database.py
 
 import sqlite3
+import json
 from datetime import datetime
 from typing import Dict, Any, List
 
 class JobDatabaseManager:
     """
     Manages the local SQLite database for the FFMPEG Tools Job Manager.
-    This database tracks the status and progress of all conversion jobs.
     """
 
     def __init__(self, db_path: str):
-        """Initializes the database manager and ensures the jobs table exists."""
-        self.conn = sqlite3.connect(db_path)
+        """Initializes the database manager and ensures the tables exist."""
+        # FIX: Add check_same_thread=False to allow FastAPI/Uvicorn's thread pool to share connections.
+        self.conn = sqlite3.connect(db_path, check_same_thread=False)
         self.create_tables()
 
     def create_tables(self):

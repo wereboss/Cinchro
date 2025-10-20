@@ -43,6 +43,28 @@ class JobManager:
 
         print(f"JobManager initialized. Storage Host: {self.STORAGE_HOST}")
 
+    def create_new_job(self, input_file: str, ffmpeg_command: str) -> str:
+        """
+        Generates a job ID, creates the database entry, and executes the pipeline.
+        This is the method the API must call.
+        """
+        job_id = str(uuid.uuid4())
+        
+        # Determine unique local file names based on job ID
+        base_name = os.path.basename(input_file)
+        # 1. Strip the original extension cleanly (e.g., Trials720.mp4 -> Trials720)
+        file_root, _ = os.path.splitext(base_name)
+        # 2. Add the target extension (.mp4, as assumed for output)
+        local_output_file = os.path.join(self.LOCAL_OUTPUT_DIR, f"{job_id}_{file_root}.mp4")
+        
+        # Create initial DB record (SUBMITTED status)
+        self.db.create_job(job_id, input_file, local_output_file, ffmpeg_command)
+        
+        # Immediately kick off the pipeline (synchronously for this MVP)
+        self.run_job_pipeline(job_id)
+        
+        return job_id
+
     # ... (_build_rsync_cmd and _run_rsync_transfer methods remain the same) ...
     
     def _build_rsync_cmd(self, src: str, dest: str) -> List[str]:
@@ -141,28 +163,40 @@ class JobManager:
             return False
 
     def _run_ffmpeg_conversion(self, job_id: str, local_input: str, local_output: str, command: str) -> bool:
-    # ... (FFMPEG conversion logic remains the same) ...
+        """
+        Executes the FFMPEG conversion process using subprocess.
+        """
+        
         self.db.update_job_status(job_id, "PROCESSING", progress=0.0, notes="Starting FFMPEG conversion.")
-        print(f"Job {job_id}: FFMPEG conversion started. Output target: {local_output}")
+        print(f"Job {job_id}: FFMPEG conversion started. Local input: {local_input} - Output target: {local_output}") # Print correct local paths
 
-        ffmpeg_cmd = [self.FFMPEG_PATH, '-i', local_input]
+        # 1. Construct the FFMPEG Command
+        # The 'command' string must NOW only contain parameters like "-c:v libx265 -crf 28"
+        
+        ffmpeg_cmd = [self.FFMPEG_PATH, '-i', local_input] # Use local_input here
         ffmpeg_cmd.extend(command.split())
+        ffmpeg_cmd.append('-y') # Force overwrite for testing
         ffmpeg_cmd.append(local_output)
         
+        print(f"DEBUG: FFMPEG Command Array: {ffmpeg_cmd}") # Confirm final command array
+
         try:
-            # Execute the FFMPEG process LIVE
+            # 2. Execute the FFMPEG process LIVE
             result = subprocess.run(
                 ffmpeg_cmd,
                 capture_output=True,
                 text=True,
-                check=True
+                check=True 
             )
             
+            # The synchronous call is complete. Update DB.
             self.db.update_job_status(job_id, "PROCESSING_COMPLETE", progress=100.0, notes="FFMPEG finished successfully.")
             
+            # Print FFMPEG output for debugging purposes
             print(f"FFMPEG STDOUT:\n{result.stdout}")
             print(f"FFMPEG STDERR (Errors/Warnings):\n{result.stderr}")
             
+            # 3. Final verification that the file exists on disk
             if not os.path.exists(local_output):
                 raise FileNotFoundError(f"FFMPEG reported success, but file was not found at {local_output}")
 
@@ -237,9 +271,9 @@ class JobManager:
             return 
 
         # --- STAGE 3: PROCESS (FFMPEG Conversion) ---
-        # NOTE: FFMPEG OUTPUT still goes to the UUID file name initially
+        # The input file MUST be the local temp file, which was pulled in Stage 1.
         if not self._run_ffmpeg_conversion(job_id, local_temp_file, local_output_file_uuid, job_data['ffmpeg_command']):
-            return 
+            return
 
         # --- INTERMEDIATE STEP: Rename Local Output to Final Name (No UUID) ---
         if os.path.exists(local_output_file_uuid):
